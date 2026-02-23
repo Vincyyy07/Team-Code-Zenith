@@ -64,6 +64,7 @@ export interface InterviewBreakdown {
   grammar: number;
   communication: number;
   confidence: number;
+  eyeContact?: number;
 }
 
 export interface SpeechMetrics {

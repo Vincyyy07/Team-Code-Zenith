@@ -124,54 +124,160 @@ const semanticSimilarity = (answer = "", question = "") => {
   return overlap / questionTokens.length;
 };
 
+const scoreStructure = (answers) => {
+  const joined = answers.join(" ").toLowerCase();
+  if (!joined || joined.includes("[unanswered")) return 0;
+
+  const indicators = ["first", "then", "because", "for example", "therefore", "finally", "however", "additionally"];
+  const hits = indicators.filter((i) => joined.includes(i)).length;
+
+  if (hits === 0) return 15;
+  if (hits === 1) return 30;
+  if (hits === 2) return 50;
+  if (hits === 3) return 65;
+  return Math.min(90, 65 + hits * 5);
+};
+
+const scoreGrammarClarity = (answers) => {
+  const joined = answers.join(" ");
+  if (!joined || joined.includes("[UNANSWERED")) return 0;
+
+  const punctuationCount = (joined.match(/[.,;:!?]/g) || []).length;
+  const sentences = joined.split(/[.!?]+/).filter(Boolean).length;
+
+  let score = 40;
+  if (punctuationCount > 0 && sentences > 0) {
+    const avgPuncPerSentence = punctuationCount / sentences;
+    score += Math.min(25, avgPuncPerSentence * 8);
+  }
+
+  if (sentences > 2) score += 15;
+  if (sentences > 4) score += 10;
+
+  return Math.min(95, score);
+};
+
+const scoreConfidence = (signals = {}) => {
+  const {
+    tabSwitches = 0,
+    longSilenceEvents = 0,
+    micOnRatio = 1,
+    faceDetectedRatio = 1,
+    backgroundNoiseEvents = 0,
+    multipleFaceEvents = 0,
+  } = signals;
+
+  let score = 70;
+  score -= tabSwitches * 10;
+  score -= longSilenceEvents * 7;
+  score -= backgroundNoiseEvents * 4;
+  score -= multipleFaceEvents * 15;
+  score += micOnRatio * 15;
+  score += faceDetectedRatio * 15;
+
+  return Math.max(5, Math.min(97, score));
+};
+
+const extractResumeKeywords = (resumeText = "") => {
+  const words = resumeText
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3 && !stopWords.has(word));
+
+  const counts = new Map();
+  words.forEach((word) => counts.set(word, (counts.get(word) || 0) + 1));
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+};
+
+const normalizeAnswers = (answers = []) =>
+  answers.map((item) => {
+    if (typeof item === "string") {
+      return { transcript: item, speechMetrics: { fillerWords: 0, pauseDurationSec: 0, wordsPerMinute: 0, clarityScore: 0 } };
+    }
+
+    return {
+      transcript: item.transcript || "",
+      codeAnswer: item.codeAnswer || null,
+      speechMetrics: item.speechMetrics || { fillerWords: 0, pauseDurationSec: 0, wordsPerMinute: 0, clarityScore: 0 },
+    };
+  });
+
 const codingValidators = {
   0: {
-    run: (fn) => {
-      if (fn([4, 5, 1, 2, 1, 2, 4]) !== 5) return false;
-      if (fn([7, 7, 9]) !== 9) return false;
-      if (fn([1, 1, 2, 2]) !== -1) return false;
-      return true;
-    },
+    tests: [
+      (fn) => fn([4, 5, 1, 2, 1, 2, 4]) === 5,
+      (fn) => fn([7, 7, 9]) === 9,
+      (fn) => fn([1, 1, 2, 2]) === -1,
+    ],
     requiredKeywords: ["frequency", "map", "count"],
   },
   1: {
-    run: (fn) => {
-      const first = fn([2, 7, 11, 15], 9);
-      const second = fn([3, 2, 4], 6);
-      return JSON.stringify(first) === JSON.stringify([0, 1]) && JSON.stringify(second) === JSON.stringify([1, 2]);
-    },
+    tests: [
+      (fn) => JSON.stringify(fn([2, 7, 11, 15], 9)) === JSON.stringify([0, 1]),
+      (fn) => JSON.stringify(fn([3, 2, 4], 6)) === JSON.stringify([1, 2]),
+      (fn) => JSON.stringify(fn([3, 3], 6)) === JSON.stringify([0, 1]),
+    ],
     requiredKeywords: ["hash", "map", "target"],
   },
   2: {
-    run: (fn) => JSON.stringify(fn([1, 2, 3, 4, 5], 2)) === JSON.stringify([4, 5, 1, 2, 3]),
+    tests: [
+      (fn) => JSON.stringify(fn([1, 2, 3, 4, 5], 2)) === JSON.stringify([4, 5, 1, 2, 3]),
+      (fn) => JSON.stringify(fn([1, 2], 3)) === JSON.stringify([2, 1]),
+      (fn) => JSON.stringify(fn([], 4)) === JSON.stringify([]),
+    ],
     requiredKeywords: ["mod", "slice", "length"],
   },
   3: {
-    run: (fn) => JSON.stringify(fn([1, 2, 2, 3, 1, 4])) === JSON.stringify([1, 2, 3, 4]),
+    tests: [
+      (fn) => JSON.stringify(fn([1, 2, 2, 3, 1, 4])) === JSON.stringify([1, 2, 3, 4]),
+      (fn) => JSON.stringify(fn([5, 5, 5])) === JSON.stringify([5]),
+      (fn) => JSON.stringify(fn([])) === JSON.stringify([]),
+    ],
     requiredKeywords: ["set", "order", "unique"],
   },
   4: {
-    run: (fn) => fn([-2, 1, -3, 4, -1, 2, 1, -5, 4]) === 6,
+    tests: [
+      (fn) => fn([-2, 1, -3, 4, -1, 2, 1, -5, 4]) === 6,
+      (fn) => fn([1]) === 1,
+      (fn) => fn([5, 4, -1, 7, 8]) === 23,
+    ],
     requiredKeywords: ["kadane", "sum", "max"],
   },
   5: {
-    run: (fn) => fn([1, 2, 3, 1]) === true && fn([1, 2, 3, 4]) === false,
+    tests: [(fn) => fn([1, 2, 3, 1]) === true, (fn) => fn([1, 2, 3, 4]) === false, (fn) => fn([]) === false],
     requiredKeywords: ["set", "duplicate", "seen"],
   },
   6: {
-    run: (fn) => JSON.stringify(fn([[1, 3], [2, 6], [8, 10], [15, 18]])) === JSON.stringify([[1, 6], [8, 10], [15, 18]]),
+    tests: [
+      (fn) => JSON.stringify(fn([[1, 3], [2, 6], [8, 10], [15, 18]])) === JSON.stringify([[1, 6], [8, 10], [15, 18]]),
+      (fn) => JSON.stringify(fn([[1, 4], [4, 5]])) === JSON.stringify([[1, 5]]),
+      (fn) => JSON.stringify(fn([])) === JSON.stringify([]),
+    ],
     requiredKeywords: ["sort", "merge", "overlap"],
   },
   7: {
-    run: (fn) => fn("abcabcbb") === 3 && fn("bbbbb") === 1,
+    tests: [(fn) => fn("abcabcbb") === 3, (fn) => fn("bbbbb") === 1, (fn) => fn("") === 0],
     requiredKeywords: ["window", "set", "substring"],
   },
   8: {
-    run: (fn) => fn([3, 2, 1, 5, 6, 4], 2) === 5,
+    tests: [
+      (fn) => fn([3, 2, 1, 5, 6, 4], 2) === 5,
+      (fn) => fn([3, 2, 3, 1, 2, 4, 5, 5, 6], 4) === 4,
+      (fn) => fn([1], 1) === 1,
+    ],
     requiredKeywords: ["heap", "sort", "partition"],
   },
   9: {
-    run: (fn) => JSON.stringify(fn([3, 1, 2])) === JSON.stringify([1, 2, 3]),
+    tests: [
+      (fn) => JSON.stringify(fn([3, 1, 2])) === JSON.stringify([1, 2, 3]),
+      (fn) => JSON.stringify(fn([])) === JSON.stringify([]),
+      (fn) => JSON.stringify(fn([5])) === JSON.stringify([5]),
+    ],
     requiredKeywords: ["sort", "compare", "ascending"],
   },
 };
@@ -179,7 +285,15 @@ const codingValidators = {
 const evaluateJavaScriptCode = (code = "", questionIndex = 0) => {
   const validator = codingValidators[questionIndex];
   if (!validator) {
-    return { passed: false, syntaxError: false, message: "Coding validator missing for this question." };
+    return {
+      passed: false,
+      passedCount: 0,
+      totalTests: 0,
+      passRate: 0,
+      errorFreeExecution: false,
+      syntaxError: false,
+      message: "Coding validator missing for this question.",
+    };
   }
 
   try {
@@ -188,18 +302,48 @@ const evaluateJavaScriptCode = (code = "", questionIndex = 0) => {
     const exported = script.runInContext(context, { timeout: 1200 });
 
     if (typeof exported !== "function") {
-      return { passed: false, syntaxError: false, message: "Define a function named solve(...) in your code." };
+      return {
+        passed: false,
+        passedCount: 0,
+        totalTests: validator.tests.length,
+        passRate: 0,
+        errorFreeExecution: false,
+        syntaxError: false,
+        message: "Define a function named solve(...) in your code.",
+      };
     }
 
-    const passed = validator.run(exported);
+    let passedCount = 0;
+    for (const test of validator.tests) {
+      try {
+        if (test(exported)) {
+          passedCount += 1;
+        }
+      } catch {
+        void 0;
+      }
+    }
+
+    const totalTests = validator.tests.length;
+    const passRate = totalTests ? passedCount / totalTests : 0;
+    const passed = passedCount === totalTests;
+
     return {
       passed,
+      passedCount,
+      totalTests,
+      passRate,
+      errorFreeExecution: true,
       syntaxError: false,
-      message: passed ? "All validation tests passed." : "Code executed but failed one or more validation tests.",
+      message: passed ? `All ${totalTests} test cases passed.` : `${passedCount}/${totalTests} test cases passed.`,
     };
   } catch (error) {
     return {
       passed: false,
+      passedCount: 0,
+      totalTests: validator.tests.length,
+      passRate: 0,
+      errorFreeExecution: false,
       syntaxError: true,
       message: `Syntax/runtime error: ${error instanceof Error ? error.message : "Invalid code"}`,
     };
@@ -220,6 +364,8 @@ const evaluateCodingAnswer = ({ answer, questionIndex, questionText }) => {
       communication: 0,
       grammar: 0,
       correctness: 0,
+      testPassPercent: 0,
+      executionQuality: 0,
       passed: false,
       feedback: ["Incorrect: no valid code submitted."],
       improvements: ["Submit a working solve(...) function for this question."],
@@ -227,18 +373,19 @@ const evaluateCodingAnswer = ({ answer, questionIndex, questionText }) => {
   }
 
   if (language !== "javascript") {
-    const syntaxLike = /class\s+Solution|def\s+solve|function\s+solve|int\s+main|solve\s*\(/i.test(code);
     return {
-      questionScore: syntaxLike ? 20 : 5,
-      relevance: syntaxLike ? 25 : 10,
-      coverage: 10,
-      structure: 20,
-      communication: 15,
-      grammar: 20,
+      questionScore: 0,
+      relevance: 0,
+      coverage: 0,
+      structure: 0,
+      communication: 0,
+      grammar: 0,
       correctness: 0,
+      testPassPercent: 0,
+      executionQuality: 0,
       passed: false,
-      feedback: ["Code language selected is not executable in current validator runtime."],
-      improvements: ["Use JavaScript for strict automatic validation or provide complete runnable syntax."],
+      feedback: ["Incorrect: current runtime validates only JavaScript `solve(...)` submissions."],
+      improvements: ["Switch language to JavaScript and submit executable code to run test cases."],
     };
   }
 
@@ -248,20 +395,26 @@ const evaluateCodingAnswer = ({ answer, questionIndex, questionText }) => {
   const keywordHits = requiredKeywords.filter((word) => `${code} ${complexityNote}`.toLowerCase().includes(word)).length;
   const keywordRatio = requiredKeywords.length ? keywordHits / requiredKeywords.length : 0;
 
-  if (!execution.passed || semantic < 0.18) {
+  const testPassPercent = Math.round(clamp(execution.passRate * 100, 0, 100));
+  const logicalCorrectness = Math.round(clamp(semantic * 70 + keywordRatio * 30, 0, 100));
+  const executionQuality = execution.errorFreeExecution ? 100 : 0;
+
+  if (testPassPercent === 0 || semantic < 0.12) {
     return {
-      questionScore: execution.syntaxError ? 2 : 8,
+      questionScore: execution.syntaxError ? 0 : Math.min(12, Math.round(testPassPercent * 0.2 + logicalCorrectness * 0.1)),
       relevance: 0,
       coverage: 0,
-      structure: execution.syntaxError ? 5 : 15,
+      structure: execution.syntaxError ? 0 : Math.round(clamp(keywordRatio * 40, 0, 40)),
       communication: 0,
-      grammar: execution.syntaxError ? 5 : 20,
+      grammar: execution.syntaxError ? 0 : 20,
       correctness: 0,
+      testPassPercent,
+      executionQuality,
       passed: false,
       feedback: [`Incorrect: ${execution.message}`],
       improvements: [
-        "Match function behavior to the question intent.",
-        "Handle core and edge test cases correctly.",
+        "Fix logic so test cases pass for expected outputs.",
+        "Handle edge cases and ensure `solve(...)` returns correct values.",
       ],
     };
   }
@@ -269,10 +422,10 @@ const evaluateCodingAnswer = ({ answer, questionIndex, questionText }) => {
   const relevance = Math.round(clamp(semantic * 100, 0, 100));
   const coverage = Math.round(clamp(keywordRatio * 100, 0, 100));
   const structure = Math.round(clamp(55 + keywordRatio * 35, 0, 95));
-  const communication = complexityNote.trim().length > 15 ? 78 : 58;
-  const grammar = 80;
-  const correctness = 100;
-  const questionScore = Math.round(relevance * 0.2 + coverage * 0.2 + structure * 0.15 + communication * 0.1 + grammar * 0.1 + correctness * 0.25);
+  const communication = 0;
+  const grammar = 0;
+  const correctness = Math.round(testPassPercent * 0.7 + logicalCorrectness * 0.3);
+  const questionScore = Math.round(testPassPercent * 0.65 + logicalCorrectness * 0.25 + executionQuality * 0.1);
 
   return {
     questionScore,
@@ -282,160 +435,13 @@ const evaluateCodingAnswer = ({ answer, questionIndex, questionText }) => {
     communication,
     grammar,
     correctness,
+    testPassPercent,
+    executionQuality,
     passed: true,
-    feedback: ["Correct: code passed validation tests for this question."],
-    improvements: coverage < 50 ? ["Add stronger complexity explanation and edge-case commentary."] : ["Maintain this coding quality and consistency."],
+    feedback: [`Correct: ${execution.message}`],
+    improvements: coverage < 50 ? ["Add concise complexity and edge-case notes with algorithm keywords."] : [],
   };
 };
-
-// Strict scoring - wrong/irrelevant answers get LOW scores
-const scoreFromLength = (text) => {
-  if (!text || text.trim().length === 0) return 0;
-  if (text.includes("[UNANSWERED")) return 0;
-  
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  
-  // Strict length requirements
-  if (words < 10) return Math.min(15, words * 1.5); // Very short = very low
-  if (words < 30) return 20 + (words - 10) * 1.2; // Still short
-  if (words < 50) return 40 + (words - 30) * 1.0; // Getting better
-  return Math.min(85, 60 + (words - 50) * 0.5); // Cap at 85 based on length alone
-};
-
-const scoreKeywordCoverage = (answers, keywords) => {
-  if (!answers.length || !keywords.length) return 0;
-
-  const joined = answers.join(" ").toLowerCase();
-  
-  // Check for unanswered
-  if (joined.includes("[unanswered")) return 0;
-  
-  const hits = keywords.filter((word) => joined.includes(word.toLowerCase())).length;
-  const hitRatio = hits / keywords.length;
-  
-  // STRICT: No keywords = 0, low coverage = low score
-  if (hitRatio === 0) return 5; // Almost zero if no keywords
-  if (hitRatio < 0.2) return 10 + hitRatio * 50; // < 20% coverage = very low
-  if (hitRatio < 0.4) return 20 + hitRatio * 80; // 20-40% = low
-  if (hitRatio < 0.6) return 40 + hitRatio * 60; // 40-60% = medium
-  return 60 + hitRatio * 40; // 60%+ = good
-};
-
-const scoreStructure = (answers) => {
-  const joined = answers.join(" ").toLowerCase();
-  
-  if (!joined || joined.includes("[unanswered")) return 0;
-  
-  const indicators = ["first", "then", "because", "for example", "therefore", "finally", "however", "additionally"];
-  const hits = indicators.filter((i) => joined.includes(i)).length;
-  
-  // Structure score based on actual structural indicators
-  if (hits === 0) return 15; // No structure = low
-  if (hits === 1) return 30;
-  if (hits === 2) return 50;
-  if (hits === 3) return 65;
-  return Math.min(90, 65 + hits * 5);
-};
-
-const scoreGrammarClarity = (answers) => {
-  const joined = answers.join(" ");
-  
-  if (!joined || joined.includes("[UNANSWERED")) return 0;
-  
-  const totalLength = joined.length;
-  const punctuationCount = (joined.match(/[.,;:!?]/g) || []).length;
-  const sentences = joined.split(/[.!?]+/).filter(Boolean).length;
-  
-  // Basic grammar checks
-  let score = 40; // Start lower
-  
-  // Punctuation usage
-  if (punctuationCount > 0 && sentences > 0) {
-    const avgPuncPerSentence = punctuationCount / sentences;
-    score += Math.min(25, avgPuncPerSentence * 8);
-  }
-  
-  // Sentence variety
-  if (sentences > 2) score += 15;
-  if (sentences > 4) score += 10;
-  
-  return Math.min(95, score);
-};
-
-const scoreCommunication = (answers) => {
-  const joined = answers.join(" ").toLowerCase();
-  
-  if (!joined || joined.includes("[unanswered")) return 0;
-  
-  const fillerWords = ["um", "uh", "like", "you know", "actually"];
-  const fillerCount = fillerWords.reduce(
-    (count, current) => count + (joined.match(new RegExp(`\\b${current}\\b`, "g")) || []).length,
-    0,
-  );
-  
-  const words = joined.split(/\s+/).filter(Boolean).length;
-  const fillerRatio = words > 0 ? fillerCount / words : 0;
-  
-  // Penalize filler words heavily
-  let score = 75;
-  score -= fillerCount * 5; // Each filler word costs 5 points
-  score -= fillerRatio * 100; // High filler ratio costs more
-  
-  return Math.max(10, Math.min(95, score));
-};
-
-const scoreConfidence = (signals = {}) => {
-  const {
-    tabSwitches = 0,
-    longSilenceEvents = 0,
-    micOnRatio = 1,
-    faceDetectedRatio = 1,
-    backgroundNoiseEvents = 0,
-    multipleFaceEvents = 0,
-  } = signals;
-  
-  let score = 70; // Start at 70
-  
-  // Heavy penalties for violations
-  score -= tabSwitches * 10; // Each tab switch -10
-  score -= longSilenceEvents * 7; // Each long silence -7
-  score -= backgroundNoiseEvents * 4; // Each noise event -4
-  score -= multipleFaceEvents * 15; // Multi-face is serious -15
-  
-  // Device signal bonuses
-  score += micOnRatio * 15;
-  score += faceDetectedRatio * 15;
-  
-  return Math.max(5, Math.min(97, score));
-};
-
-const extractResumeKeywords = (resumeText = "") => {
-  const words = resumeText
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 3 && !stopWords.has(word));
-
-  const counts = new Map();
-  words.forEach((word) => counts.set(word, (counts.get(word) || 0) + 1));
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([word]) => word);
-};
-
-const normalizeAnswers = (answers = []) =>
-  answers.map((item) => {
-    if (typeof item === "string") {
-      return { transcript: item, speechMetrics: { fillerWords: 0, pauseDurationSec: 0, wordsPerMinute: 110, clarityScore: 70 } };
-    }
-
-    return {
-      transcript: item.transcript || "",
-      codeAnswer: item.codeAnswer || null,
-      speechMetrics: item.speechMetrics || { fillerWords: 0, pauseDurationSec: 0, wordsPerMinute: 110, clarityScore: 70 },
-    };
-  });
 
 export const generateQuestions = ({ type, topic, resumeText = "" }) => {
   if (type === "hr" && resumeText.trim().length > 20) {
@@ -477,292 +483,66 @@ export const generateQuestions = ({ type, topic, resumeText = "" }) => {
   ];
 };
 
-export const evaluateInterview = ({ type, topic, questions = [], answers, durationSec, proctoringSignals }) => {
-  const normalizedAnswers = normalizeAnswers(answers || []);
-  const transcripts = normalizedAnswers.map((item) => item.transcript);
-
-  if (type === "coding") {
-    const codingResults = normalizedAnswers.map((answer, index) =>
-      evaluateCodingAnswer({ answer, questionIndex: index, questionText: questions[index] || `Question ${index + 1}` }),
-    );
-
-    const relevance = Math.round(codingResults.reduce((sum, item) => sum + item.relevance, 0) / Math.max(1, codingResults.length));
-    const coverage = Math.round(codingResults.reduce((sum, item) => sum + item.coverage, 0) / Math.max(1, codingResults.length));
-    const structure = Math.round(codingResults.reduce((sum, item) => sum + item.structure, 0) / Math.max(1, codingResults.length));
-    const grammar = Math.round(codingResults.reduce((sum, item) => sum + item.grammar, 0) / Math.max(1, codingResults.length));
-    const communication = Math.round(codingResults.reduce((sum, item) => sum + item.communication, 0) / Math.max(1, codingResults.length));
-    const confidence = Math.round(scoreConfidence(proctoringSignals));
-    const completeness = Math.round(clamp((relevance + coverage + structure) / 3, 0, 100));
-    const correctnessAvg = Math.round(codingResults.reduce((sum, item) => sum + item.correctness, 0) / Math.max(1, codingResults.length));
-
-    const overallScore = Math.round(
-      relevance * 0.18 +
-        coverage * 0.18 +
-        structure * 0.14 +
-        communication * 0.1 +
-        confidence * 0.08 +
-        grammar * 0.07 +
-        correctnessAvg * 0.25,
-    );
-
-    const passedCount = codingResults.filter((item) => item.passed).length;
-    const unansweredCount = normalizedAnswers.filter((item) => !item.codeAnswer?.code || item.codeAnswer.code.includes("[UNANSWERED")).length;
-
-    const strengths = [];
-    const improvements = [];
-    if (passedCount >= 7) strengths.push("Strong coding correctness across most validation tests.");
-    if (correctnessAvg >= 75) strengths.push("High code validation pass rate.");
-    if (structure >= 70) strengths.push("Solutions show structured implementation patterns.");
-
-    if (passedCount < 5) improvements.push("CRITICAL: Most coding answers failed output validation tests.");
-    if (relevance < 60) improvements.push("CRITICAL: Solutions are not aligned with problem intent.");
-    if (coverage < 50) improvements.push("Missing algorithmic concepts and edge-case handling in explanations.");
-    if (unansweredCount > 0) improvements.push(`⚠️ ${unansweredCount} coding question(s) unanswered.`);
-
-    const questionBreakdown = codingResults.map((result, index) => ({
-      questionNumber: index + 1,
-      question: questions[index] || `Question ${index + 1}`,
-      answer: normalizedAnswers[index]?.codeAnswer?.code || "[No code provided]",
-      status: normalizedAnswers[index]?.codeAnswer?.code ? "answered" : "unanswered",
-      score: result.questionScore,
-      wordCount: (normalizedAnswers[index]?.codeAnswer?.code || "").split(/\s+/).filter(Boolean).length,
-      metrics: {
-        keywordCoverage: result.coverage,
-        structure: result.structure,
-        clarity: result.grammar,
-        communication: result.communication,
-        speechClarity: 0,
-        fillerWords: 0,
-        wordsPerMinute: 0,
-      },
-      feedback: result.feedback,
-      improvements: result.improvements,
-    }));
-
-    return {
-      interviewType: type,
-      topic: topic || "default",
-      durationSec,
-      overallScore,
-      breakdown: {
-        relevance,
-        coverage,
-        completeness,
-        structure,
-        grammar,
-        communication,
-        confidence,
-      },
-      speechMetrics: {
-        wordsPerMinuteAvg: 0,
-        pauseDurationTotalSec: 0,
-        fillerWordsTotal: 0,
-        clarityAvg: 0,
-      },
-      summary:
-        overallScore >= 75
-          ? "Strong coding interview performance with validated correct solutions."
-          : "Coding performance needs improvement: correctness and test validation are mandatory.",
-      strengths: strengths.length ? strengths : ["Interview attempt completed."],
-      improvements: improvements.length ? improvements : ["Improve validation pass rate for higher score."],
-      suggestions: [
-        "Write solve(...) with exact problem intent before optimization.",
-        "Validate edge cases explicitly (empty input, duplicates, boundaries).",
-        "Add concise complexity notes to strengthen technical communication.",
-      ],
-      unansweredCount,
-      questionBreakdown,
-    };
-  }
-
-  const normalizedTopic = topic || "default";
-  const keywords = keywordBank[normalizedTopic] || keywordBank.default;
-  
-  const semanticScores = normalizedAnswers.map((answer, index) => semanticSimilarity(answer.transcript, questions[index] || topic || "question"));
-  const semanticThreshold = 0.18;
-
-  const perQuestionValidity = normalizedAnswers.map((answer, index) => {
-    const transcript = answer.transcript || "";
-    if (!transcript.trim() || transcript.includes("[UNANSWERED")) return false;
-    const semantic = semanticScores[index] || 0;
-    const keywordHit = keywords.some((word) => transcript.toLowerCase().includes(word));
-    return semantic >= semanticThreshold && keywordHit;
-  });
-
-  const correctnessRatio = perQuestionValidity.length
-    ? perQuestionValidity.filter(Boolean).length / perQuestionValidity.length
-    : 0;
-
-  const rawRelevance = Math.round(scoreFromLength(transcripts.join(" ")));
-  const rawCoverage = Math.round(scoreKeywordCoverage(transcripts, keywords));
-
-  const relevance = correctnessRatio < 0.35 ? 0 : Math.round(rawRelevance * correctnessRatio);
-  const coverage = correctnessRatio < 0.35 ? 0 : Math.round(rawCoverage * correctnessRatio);
-  const structure = Math.round(scoreStructure(transcripts));
-  const grammar = Math.round(scoreGrammarClarity(transcripts));
-
-  const communicationBase = Math.round(scoreCommunication(transcripts));
-  const clarityAvg = normalizedAnswers.length
-    ? normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.clarityScore || 0), 0) / normalizedAnswers.length
-    : 0; // Changed from 70 to 0 for strict mode
-    
-  const fillerWordsTotal = normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.fillerWords || 0), 0);
-  const pauseDurationTotal = normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.pauseDurationSec || 0), 0);
-  const wordsPerMinuteAvg = normalizedAnswers.length
-    ? normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.wordsPerMinute || 0), 0) / normalizedAnswers.length
-    : 0; // Changed from 110 to 0
-
-  // STRICT communication scoring
-  const communication = correctnessRatio < 0.35 ? 0 : Math.round(clamp((communicationBase * 0.7 + clarityAvg * 0.3) - fillerWordsTotal * 0.8, 0, 97));
-  const confidence = correctnessRatio < 0.35 ? 0 : Math.round(scoreConfidence(proctoringSignals));
-  const completeness = Math.round(clamp((relevance * 0.4 + coverage * 0.4 + structure * 0.2), 0, 98));
-
-  // Final score calculation - WEIGHTED
-  const overallScore = Math.round(
-    relevance * 0.3 + 
-    coverage * 0.2 + 
-    structure * 0.15 + 
-    communication * 0.15 + 
-    confidence * 0.1 + 
-    grammar * 0.1
+const evaluateCodingInterview = ({ type, topic, questions, normalizedAnswers, durationSec, proctoringSignals }) => {
+  const codingResults = normalizedAnswers.map((answer, index) =>
+    evaluateCodingAnswer({ answer, questionIndex: index, questionText: questions[index] || `Question ${index + 1}` }),
   );
-  const strictOverallScore = correctnessRatio < 0.35 ? Math.min(overallScore, 12) : overallScore;
+
+  const relevance = Math.round(codingResults.reduce((sum, item) => sum + item.relevance, 0) / Math.max(1, codingResults.length));
+  const coverage = Math.round(codingResults.reduce((sum, item) => sum + item.coverage, 0) / Math.max(1, codingResults.length));
+  const structure = Math.round(codingResults.reduce((sum, item) => sum + item.structure, 0) / Math.max(1, codingResults.length));
+  const grammar = 0;
+  const communication = 0;
+  const confidence = 0;
+  const eyeContact = Math.round(clamp((proctoringSignals?.faceDetectedRatio ?? 0) * 100, 0, 100));
+  const completeness = Math.round(clamp((relevance + coverage + structure) / 3, 0, 100));
+
+  const correctnessAvg = Math.round(codingResults.reduce((sum, item) => sum + item.correctness, 0) / Math.max(1, codingResults.length));
+  const avgTestPassPercent = Math.round(codingResults.reduce((sum, item) => sum + (item.testPassPercent || 0), 0) / Math.max(1, codingResults.length));
+  const avgExecutionQuality = Math.round(codingResults.reduce((sum, item) => sum + (item.executionQuality || 0), 0) / Math.max(1, codingResults.length));
+
+  const overallScore = Math.round(avgTestPassPercent * 0.6 + correctnessAvg * 0.25 + avgExecutionQuality * 0.15);
+
+  const passedCount = codingResults.filter((item) => item.passed).length;
+  const unansweredCount = normalizedAnswers.filter((item) => !item.codeAnswer?.code || item.codeAnswer.code.includes("[UNANSWERED")).length;
 
   const strengths = [];
   const improvements = [];
 
-  // STRICT strength recognition - only above 75
-  if (relevance >= 75) strengths.push("Strong alignment of answers with asked questions.");
-  if (structure >= 75) strengths.push("Responses are well-structured and easy to follow.");
-  if (communication >= 75) strengths.push("Clear and professional communication style.");
-  if (confidence >= 75) strengths.push("Stable delivery with good composure.");
-  if (coverage >= 75) strengths.push("Good technical depth and keyword coverage.");
+  if (avgTestPassPercent >= 80) strengths.push("High test-case pass percentage across coding questions.");
+  if (correctnessAvg >= 75) strengths.push("Strong logical correctness in implemented solutions.");
+  if (avgExecutionQuality >= 90) strengths.push("Submissions executed without syntax/runtime failures.");
 
-  // SPECIFIC improvements for low scores
-  if (coverage < 60) improvements.push("CRITICAL: Answer lacks domain-specific keywords and technical depth. Study core concepts thoroughly.");
-  if (relevance < 60) improvements.push("CRITICAL: Answers are too short or not addressing the questions directly. Provide complete responses.");
-  if (correctnessRatio < 0.35) improvements.push("CRITICAL: Most answers are semantically incorrect for the asked questions.");
-  if (communication < 60) improvements.push("Reduce filler words significantly. Practice speaking clearly without hesitation.");
-  if (confidence < 60) improvements.push("High number of proctoring violations detected. Maintain focus and composure.");
-  if (completeness < 60) improvements.push("Incomplete answers detected. Address all parts of each question with examples.");
-  if (structure < 60) improvements.push("Use structured frameworks (e.g., STAR for HR, problem-approach-solution for technical).");
-  if (grammar < 60) improvements.push("Improve sentence structure and use proper punctuation in explanations.");
+  if (passedCount < 5) improvements.push("CRITICAL: Most coding answers failed automated test cases.");
+  if (correctnessAvg < 60) improvements.push("CRITICAL: Solution logic does not match required problem behavior.");
+  if (coverage < 50) improvements.push("Missing algorithmic concepts and edge-case handling in explanations.");
+  if (unansweredCount > 0) improvements.push(`⚠️ ${unansweredCount} coding question(s) unanswered.`);
 
-  // Check for unanswered questions
-  const unansweredCount = transcripts.filter(t => !t || t.includes("[UNANSWERED") || t.trim().length === 0).length;
-  if (unansweredCount > 0) {
-    improvements.push(`⚠️ ${unansweredCount} question(s) unanswered or timed out. All questions must be answered for better scores.`);
-  }
-
-  const suggestions = strictOverallScore < 50 ? [
-    "Practice answering questions within 60 seconds with complete responses.",
-    "Study domain-specific concepts and vocabulary thoroughly before interviews.",
-    "Use the STAR framework for behavioral questions with measurable outcomes.",
-    "Record yourself and identify filler words, then practice reducing them.",
-    "Ensure stable environment - no tab switching, noise, or interruptions.",
-  ] : overallScore < 70 ? [
-    "Practice 3-4 timed mock sessions weekly and track improvement.",
-    "Prepare 8-10 domain-specific examples with technical depth.",
-    "Work on reducing filler words and long pauses during delivery.",
-    "Review feedback from each mock and focus on weakest category.",
-  ] : [
-    "Continue practicing to maintain consistency across different topics.",
-    "Deep dive into advanced concepts to improve technical depth.",
-    "Focus on communication polish and reducing any remaining filler words.",
-  ];
-
-  const summary =
-    strictOverallScore >= 80
-      ? "Excellent performance! Strong interview readiness with clear communication, good technical depth, and professional delivery."
-      : strictOverallScore >= 65
-        ? "Good baseline performance with visible strengths. Focus on areas marked for improvement to reach the next level."
-        : strictOverallScore >= 40
-          ? "Foundational performance with room for significant improvement. Prioritize completeness, keyword coverage, and structured answers."
-          : "Performance needs major improvement. Many questions unanswered or lacking depth. Focus on fundamentals: complete answers, domain vocabulary, and 60-second response discipline.";
-
-  // Per-question breakdown for accurate feedback
-  const questionBreakdown = normalizedAnswers.map((answerObj, index) => {
-    const questionText = questions[index] || `Question ${index + 1}`;
-    const transcript = answerObj.transcript || "";
-    const isUnanswered = !transcript || transcript.includes("[UNANSWERED") || transcript.trim().length === 0;
-    
-    // Individual scoring for this answer
-    const isCorrect = perQuestionValidity[index] || false;
-    const answerLength = isCorrect ? scoreFromLength(transcript) : 0;
-    const answerCoverage = isCorrect ? scoreKeywordCoverage([transcript], keywords) : 0;
-    const answerStructure = scoreStructure([transcript]);
-    const answerGrammar = scoreGrammarClarity([transcript]);
-    const answerCommunication = isCorrect ? scoreCommunication([transcript]) : 0;
-    
-    const wordCount = transcript.trim().split(/\s+/).filter(w => w.length > 0).length;
-    const { wordsPerMinute = 0, fillerWords = 0, clarityScore = 0 } = answerObj.speechMetrics;
-    
-    // Generate specific feedback for this answer
-    const feedback = [];
-    const missing = [];
-    
-    if (isUnanswered) {
-      feedback.push("⚠️ Question was not answered or timed out after 60 seconds.");
-      missing.push("Provide a complete answer addressing all parts of the question.");
-      missing.push("Practice responding within 60-second time limit.");
-    } else {
-      if (!isCorrect) {
-        feedback.push("❌ Incorrect: answer does not match question intent.");
-        missing.push("Address the exact concept asked in the question before adding detail.");
-        missing.push(`Include core concepts such as: ${keywords.slice(0, 5).join(", ")}.`);
-      }
-
-      // Positive feedback
-      if (answerCoverage >= 70) feedback.push("✓ Strong keyword coverage with good technical depth.");
-      if (answerStructure >= 70) feedback.push("✓ Well-structured response with clear flow.");
-      if (answerGrammar >= 70) feedback.push("✓ Clear and grammatically sound explanation.");
-      if (clarityScore >= 75) feedback.push("✓ Excellent speech clarity and delivery.");
-      if (fillerWords === 0 && wordCount > 15) feedback.push("✓ Clean delivery with no filler words.");
-      
-      // Areas for improvement
-      if (answerCoverage < 50) missing.push(`Missing key domain concepts. Expected keywords: ${keywords.slice(0, 5).join(", ")}.`);
-      if (answerLength < 40) missing.push("Answer is too brief. Provide more detail and examples.");
-      if (answerStructure < 50) missing.push("Use structured approach: state problem, explain method, summarize outcome.");
-      if (fillerWords >= 3) missing.push(`High filler word count (${fillerWords}). Practice clearer delivery.`);
-      if (wordCount < 20) missing.push("Response lacks depth. Aim for 30-50 words minimum with examples.");
-      if (answerGrammar < 50) missing.push("Improve sentence structure and coherence.");
-    }
-    
-    // Calculate question-level score
-    const questionScore = isUnanswered || !isCorrect ? 0 : Math.round(
-      answerLength * 0.3 + 
-      answerCoverage * 0.25 + 
-      answerStructure * 0.2 + 
-      answerGrammar * 0.15 + 
-      answerCommunication * 0.1
-    );
-    
-    return {
-      questionNumber: index + 1,
-      question: questionText,
-      answer: transcript || "[No answer provided]",
-      status: isUnanswered ? "unanswered" : "answered",
-      score: questionScore,
-      wordCount,
-      metrics: {
-        keywordCoverage: Math.round(answerCoverage),
-        structure: Math.round(answerStructure),
-        clarity: Math.round(answerGrammar),
-        communication: Math.round(answerCommunication),
-        speechClarity: Math.round(clarityScore),
-        fillerWords,
-        wordsPerMinute: Math.round(wordsPerMinute),
-      },
-      feedback: feedback.length ? feedback : ["Answer provided but needs improvement in multiple areas."],
-      improvements: missing.length ? missing : ["Continue practicing to maintain quality."],
-    };
-  });
+  const questionBreakdown = codingResults.map((result, index) => ({
+    questionNumber: index + 1,
+    question: questions[index] || `Question ${index + 1}`,
+    answer: normalizedAnswers[index]?.codeAnswer?.code || "[No code provided]",
+    status: normalizedAnswers[index]?.codeAnswer?.code ? "answered" : "unanswered",
+    score: result.questionScore,
+    wordCount: (normalizedAnswers[index]?.codeAnswer?.code || "").split(/\s+/).filter(Boolean).length,
+    metrics: {
+      keywordCoverage: result.coverage,
+      structure: result.structure,
+      clarity: result.grammar,
+      communication: result.communication,
+      speechClarity: 0,
+      fillerWords: 0,
+      wordsPerMinute: 0,
+    },
+    feedback: result.feedback,
+    improvements: result.improvements,
+  }));
 
   return {
     interviewType: type,
-    topic: normalizedTopic,
+    topic: topic || "default",
     durationSec,
-    overallScore: strictOverallScore,
+    overallScore,
     breakdown: {
       relevance,
       coverage,
@@ -771,6 +551,215 @@ export const evaluateInterview = ({ type, topic, questions = [], answers, durati
       grammar,
       communication,
       confidence,
+      eyeContact,
+    },
+    speechMetrics: {
+      wordsPerMinuteAvg: 0,
+      pauseDurationTotalSec: 0,
+      fillerWordsTotal: 0,
+      clarityAvg: 0,
+    },
+    summary:
+      overallScore >= 75
+        ? "Strong coding interview performance based on test-case passes and logic correctness."
+        : "Coding performance needs improvement: automated test validation and execution reliability are mandatory.",
+    strengths: strengths.length ? strengths : ["No strong areas identified in this attempt."],
+    improvements: improvements.length ? improvements : ["Improve test pass rate and logical correctness."],
+    suggestions: [
+      "Write solve(...) with exact problem intent before optimization.",
+      "Validate edge cases explicitly (empty input, duplicates, boundaries).",
+      "Add concise complexity notes to strengthen technical communication.",
+    ],
+    unansweredCount,
+    questionBreakdown,
+  };
+};
+
+const evaluateTheoryInterview = ({ type, topic, questions, normalizedAnswers, durationSec, proctoringSignals }) => {
+  const normalizedTopic = topic || "default";
+  const topicKeywords = keywordBank[normalizedTopic] || keywordBank.default;
+  const semanticThreshold = 0.2;
+
+  const perQuestion = normalizedAnswers.map((answerObj, index) => {
+    const questionText = questions[index] || `Question ${index + 1}`;
+    const transcript = (answerObj.transcript || "").trim();
+    const isUnanswered = !transcript || transcript.includes("[UNANSWERED");
+
+    const semantic = isUnanswered ? 0 : semanticSimilarity(transcript, questionText);
+    const semanticPercent = Math.round(clamp(semantic * 100, 0, 100));
+
+    const questionTokens = tokenize(questionText).slice(0, 8);
+    const requiredKeywords = Array.from(new Set([...topicKeywords.slice(0, 6), ...questionTokens]));
+    const keywordHits = requiredKeywords.filter((word) => transcript.toLowerCase().includes(word.toLowerCase())).length;
+    const keywordCoverage = requiredKeywords.length ? Math.round(clamp((keywordHits / requiredKeywords.length) * 100, 0, 100)) : 0;
+
+    const structureScore = isUnanswered ? 0 : Math.round(scoreStructure([transcript]));
+    const grammarScore = isUnanswered ? 0 : Math.round(scoreGrammarClarity([transcript]));
+    const { wordsPerMinute = 0, fillerWords = 0, clarityScore = 0, pauseDurationSec = 0 } = answerObj.speechMetrics || {};
+
+    const communicationScore = isUnanswered
+      ? 0
+      : Math.round(
+          clamp(
+            clarityScore * 0.6 +
+              clamp(100 - fillerWords * 12, 0, 100) * 0.25 +
+              clamp(100 - pauseDurationSec * 1.5, 0, 100) * 0.15,
+            0,
+            100,
+          ),
+        );
+
+    const isCorrect = !isUnanswered && semantic >= semanticThreshold && keywordCoverage >= 20;
+    const questionScore = isCorrect
+      ? Math.round(
+          semanticPercent * 0.5 +
+            keywordCoverage * 0.2 +
+            structureScore * 0.12 +
+            grammarScore * 0.1 +
+            communicationScore * 0.08,
+        )
+      : Math.round(clamp(semanticPercent * 0.1 + keywordCoverage * 0.05, 0, 15));
+
+    const feedback = [];
+    const improvements = [];
+
+    if (isUnanswered) {
+      feedback.push("Incorrect: unanswered (timeout or empty response).");
+      improvements.push("Provide a complete response within the question timer.");
+    } else if (!isCorrect) {
+      feedback.push("Incorrect: response is not sufficiently relevant to the asked question.");
+      if (semantic < semanticThreshold) improvements.push("Explain the exact concept asked before adding extra details.");
+      if (keywordCoverage < 20) improvements.push(`Include core concepts like: ${requiredKeywords.slice(0, 5).join(", ")}.`);
+      if (structureScore < 50) improvements.push("Use a clear structure: definition, approach, and practical example.");
+    } else {
+      if (semanticPercent >= 75) feedback.push("Correct: strong semantic alignment with the question.");
+      if (keywordCoverage >= 70) feedback.push("Correct: key concepts are covered adequately.");
+      if (structureScore < 60) improvements.push("Improve structure using step-wise explanation.");
+      if (communicationScore < 60) improvements.push("Reduce filler words and improve clarity of delivery.");
+      if (grammarScore < 60) improvements.push("Improve sentence clarity and grammar quality.");
+    }
+
+    const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+
+    return {
+      questionNumber: index + 1,
+      question: questionText,
+      answer: transcript || "[No answer provided]",
+      status: isUnanswered ? "unanswered" : "answered",
+      score: questionScore,
+      wordCount,
+      metrics: {
+        keywordCoverage,
+        structure: structureScore,
+        clarity: grammarScore,
+        communication: communicationScore,
+        speechClarity: Math.round(clarityScore),
+        fillerWords,
+        wordsPerMinute: Math.round(wordsPerMinute),
+      },
+      feedback,
+      improvements,
+      isCorrect,
+      semanticPercent,
+    };
+  });
+
+  const answeredCount = perQuestion.filter((item) => item.status === "answered").length;
+  const unansweredCount = perQuestion.length - answeredCount;
+  const correctCount = perQuestion.filter((item) => item.isCorrect).length;
+  const correctnessRatio = perQuestion.length ? correctCount / perQuestion.length : 0;
+
+  let relevance = Math.round(perQuestion.reduce((sum, item) => sum + item.semanticPercent, 0) / Math.max(1, perQuestion.length));
+  let coverage = Math.round(perQuestion.reduce((sum, item) => sum + item.metrics.keywordCoverage, 0) / Math.max(1, perQuestion.length));
+  const structure = Math.round(perQuestion.reduce((sum, item) => sum + item.metrics.structure, 0) / Math.max(1, perQuestion.length));
+  const grammar = Math.round(perQuestion.reduce((sum, item) => sum + item.metrics.clarity, 0) / Math.max(1, perQuestion.length));
+  const communication = Math.round(perQuestion.reduce((sum, item) => sum + item.metrics.communication, 0) / Math.max(1, perQuestion.length));
+
+  if (correctnessRatio < 0.35) {
+    relevance = 0;
+    coverage = 0;
+  }
+
+  const fillerWordsTotal = normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.fillerWords || 0), 0);
+  const pauseDurationTotal = normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.pauseDurationSec || 0), 0);
+  const wordsPerMinuteAvg = normalizedAnswers.length
+    ? normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.wordsPerMinute || 0), 0) / normalizedAnswers.length
+    : 0;
+  const clarityAvg = normalizedAnswers.length
+    ? normalizedAnswers.reduce((sum, item) => sum + (item.speechMetrics.clarityScore || 0), 0) / normalizedAnswers.length
+    : 0;
+
+  const confidenceRaw = Math.round(scoreConfidence(proctoringSignals));
+  const eyeContactRaw = Math.round(clamp((proctoringSignals?.faceDetectedRatio ?? 0) * 100, 0, 100));
+  const confidence = correctnessRatio < 0.35 ? 0 : confidenceRaw;
+  const eyeContact = correctnessRatio < 0.35 ? 0 : eyeContactRaw;
+
+  const completeness = Math.round(clamp((answeredCount / Math.max(1, perQuestion.length)) * 100, 0, 100));
+
+  const weightedScore = Math.round(
+    relevance * 0.4 +
+      coverage * 0.18 +
+      structure * 0.12 +
+      grammar * 0.1 +
+      communication * 0.1 +
+      confidence * 0.06 +
+      eyeContact * 0.04,
+  );
+
+  const overallScore = correctnessRatio < 0.35 ? Math.min(weightedScore, 12) : weightedScore;
+
+  const strengths = [];
+  const improvements = [];
+
+  if (relevance >= 75) strengths.push("Strong semantic correctness against asked questions.");
+  if (coverage >= 70) strengths.push("Good concept coverage using relevant domain terms.");
+  if (structure >= 70) strengths.push("Answers are generally structured and coherent.");
+  if (communication >= 70) strengths.push("Clear delivery with controlled speech quality.");
+
+  if (correctnessRatio < 0.35) improvements.push("CRITICAL: Most answers are incorrect or irrelevant to the actual questions.");
+  if (coverage < 60) improvements.push("CRITICAL: Concept coverage is low; include core technical terms and mechanisms.");
+  if (structure < 60) improvements.push("Improve answer structure using clear step-wise explanation.");
+  if (grammar < 60) improvements.push("Improve grammar and sentence clarity for professional communication.");
+  if (communication < 60) improvements.push("Reduce pauses/fillers and improve speaking clarity.");
+  if (unansweredCount > 0) improvements.push(`⚠️ ${unansweredCount} question(s) were unanswered.`);
+
+  const suggestions = overallScore < 50
+    ? [
+        "Practice answering with direct semantic focus on what is asked.",
+        "Build topic-wise keyword sheets and use them in mock responses.",
+        "Use a strict 3-step response: concept, method, example.",
+      ]
+    : [
+        "Continue timed mocks and maintain semantic precision.",
+        "Improve weak metrics shown in per-question feedback.",
+      ];
+
+  const summary = overallScore >= 75
+    ? "Strong interview performance driven by correct, relevant and structured answers."
+    : overallScore >= 50
+      ? "Moderate performance: some answers are correct, but consistency and depth need improvement."
+      : "Low performance: many answers are incorrect/irrelevant or incomplete; focus on correctness first.";
+
+  const questionBreakdown = perQuestion.map(({ isCorrect: _isCorrect, semanticPercent: _semanticPercent, ...item }) => ({
+    ...item,
+    feedback: item.feedback.length ? item.feedback : ["Incorrect: response quality is below required threshold."],
+    improvements: item.improvements,
+  }));
+
+  return {
+    interviewType: type,
+    topic: normalizedTopic,
+    durationSec,
+    overallScore,
+    breakdown: {
+      relevance,
+      coverage,
+      completeness,
+      structure,
+      grammar,
+      communication,
+      confidence,
+      eyeContact,
     },
     speechMetrics: {
       wordsPerMinuteAvg: Math.round(wordsPerMinuteAvg),
@@ -779,10 +768,34 @@ export const evaluateInterview = ({ type, topic, questions = [], answers, durati
       clarityAvg: Math.round(clarityAvg),
     },
     summary,
-    strengths: strengths.length ? strengths : ["Completed the interview flow."],
-    improvements: improvements.length ? improvements : ["Practice more to build consistency."],
+    strengths: strengths.length ? strengths : ["No strong areas identified in this attempt."],
+    improvements: improvements.length ? improvements : ["Improve semantic correctness and keyword coverage."],
     suggestions,
     unansweredCount,
     questionBreakdown,
   };
+};
+
+export const evaluateInterview = ({ type, topic, questions = [], answers, durationSec, proctoringSignals }) => {
+  const normalizedAnswers = normalizeAnswers(answers || []);
+
+  if (type === "coding") {
+    return evaluateCodingInterview({
+      type,
+      topic,
+      questions,
+      normalizedAnswers,
+      durationSec,
+      proctoringSignals,
+    });
+  }
+
+  return evaluateTheoryInterview({
+    type,
+    topic,
+    questions,
+    normalizedAnswers,
+    durationSec,
+    proctoringSignals,
+  });
 };

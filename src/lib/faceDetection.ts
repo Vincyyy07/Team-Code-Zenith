@@ -1,5 +1,19 @@
 import type { BlazeFaceModel } from "@tensorflow-models/blazeface";
 
+type BlazeFaceLoaderModule = {
+  load?: () => Promise<BlazeFaceModel>;
+  default?: (() => Promise<BlazeFaceModel>) | { load?: () => Promise<BlazeFaceModel> };
+};
+
+type TensorflowModule = {
+  setBackend?: (backend: string) => Promise<void>;
+  ready?: () => Promise<void>;
+  default?: {
+    setBackend?: (backend: string) => Promise<void>;
+    ready?: () => Promise<void>;
+  };
+};
+
 export interface FaceDetection {
   multipleFacesDetected: boolean;
   faceCount: number;
@@ -64,24 +78,45 @@ class FaceDetectionService {
     this.loading = true;
 
     try {
-      const tf = await import("@tensorflow/tfjs");
-      const blazeface = await import("@tensorflow-models/blazeface");
+      const tfModule = (await import("@tensorflow/tfjs")) as TensorflowModule;
+      const tf = tfModule.default ?? tfModule;
 
-      try {
-        await tf.default.setBackend("webgl");
-      } catch {
-        await tf.default.setBackend("cpu");
+      if (!tf.setBackend || !tf.ready) {
+        throw new Error("TensorFlow backend is unavailable");
       }
 
-      await tf.default.ready();
-      this.model = await blazeface.default();
+      try {
+        await tf.setBackend("webgl");
+      } catch {
+        await tf.setBackend("cpu");
+      }
+
+      await tf.ready();
+
+      const blazefaceModule = (await import("@tensorflow-models/blazeface")) as BlazeFaceLoaderModule;
+      const loadModel =
+        blazefaceModule.load ??
+        (typeof blazefaceModule.default === "function" ? blazefaceModule.default : blazefaceModule.default?.load);
+
+      if (!loadModel) {
+        throw new Error("BlazeFace load function is unavailable");
+      }
+
+      this.model = await loadModel();
       this.initialized = true;
+    } catch {
+      this.model = null;
+      this.initialized = false;
     } finally {
       this.loading = false;
     }
   }
 
   async detectFaces(videoElement: HTMLVideoElement): Promise<FaceDetection> {
+    if (!this.initialized && !this.loading) {
+      await this.initialize();
+    }
+
     if (!this.initialized || !this.model || videoElement.readyState < 2) {
       return {
         multipleFacesDetected: false,

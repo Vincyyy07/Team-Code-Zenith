@@ -71,7 +71,6 @@ const InterviewSession = () => {
   const [micReady, setMicReady] = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
   const [faceDetectionReady, setFaceDetectionReady] = useState(false);
-  const [skipFaceDetection, setSkipFaceDetection] = useState(false);
 
   const [tabSwitches, setTabSwitches] = useState(0);
   const [longSilenceEvents, setLongSilenceEvents] = useState(0);
@@ -135,20 +134,13 @@ const InterviewSession = () => {
         setCameraReady(Boolean(videoTrack?.enabled));
         setMicReady(isCoding ? true : Boolean(audioTrack?.enabled));
 
-        // Initialize face detection with timeout fallback
-        try {
-          await faceDetectionService.initialize();
-          setFaceDetectionReady(true);
-        } catch (error) {
-          console.warn("Face detection initialization failed, will allow skip after timeout", error);
-          setFaceDetectionReady(false);
+        // Initialize face detection (mandatory)
+        await faceDetectionService.initialize();
+        const supported = faceDetectionService.getIsSupported();
+        setFaceDetectionReady(supported);
+        if (!supported) {
+          toast.error("Face validation could not start. Check browser support or network and reload.");
         }
-
-        // If face detection takes too long (model not loading), allow skipping after 8 seconds
-        const faceDetectionTimeout = window.setTimeout(() => {
-          console.warn("Face detection timeout - showing skip option to user");
-          setFaceDetectionReady(true); // Allow button to show even if face detection failed
-        }, 8000);
 
         if (!isCoding && audioTrack) {
           const audioContext = new AudioContext();
@@ -159,8 +151,6 @@ const InterviewSession = () => {
           audioContextRef.current = audioContext;
           analyserRef.current = analyser;
         }
-
-        return () => window.clearTimeout(faceDetectionTimeout);
       } catch {
         toast.error(isCoding ? "Camera access is mandatory." : "Camera and microphone access is mandatory.");
       }
@@ -183,26 +173,30 @@ const InterviewSession = () => {
     const detectionLoop = window.setInterval(async () => {
       if (!videoRef.current) return;
 
-      const result = await faceDetectionService.detectFaces(videoRef.current);
-      const isFaceVisible = result.faceCount >= 1;
-      setFaceDetected(isFaceVisible);
+      try {
+        const result = await faceDetectionService.detectFaces(videoRef.current);
+        const isFaceVisible = result.faceCount >= 1;
+        setFaceDetected(isFaceVisible);
 
-      const now = Date.now();
-      if (result.multipleFacesDetected && now - lastFaceWarningAt > 4000) {
-        setLastFaceWarningAt(now);
-        setMultipleFaceEvents((value) => value + 1);
+        const now = Date.now();
+        if (result.multipleFacesDetected && now - lastFaceWarningAt > 4000) {
+          setLastFaceWarningAt(now);
+          setMultipleFaceEvents((value) => value + 1);
 
-        setMultiPersonWarnings((warnings) => {
-          const nextWarnings = warnings + 1;
-          if (nextWarnings === 1) {
-            setShowMultiPersonAlert(true);
-            toast.warning("Multiple persons detected. Please ensure you are alone during the interview.");
-          }
-          if (nextWarnings >= 2) {
-            void terminateInterview("Interview terminated – Multiple persons detected.");
-          }
-          return nextWarnings;
-        });
+          setMultiPersonWarnings((warnings) => {
+            const nextWarnings = warnings + 1;
+            if (nextWarnings === 1) {
+              setShowMultiPersonAlert(true);
+              toast.warning("Multiple persons detected. Please ensure you are alone during the interview.");
+            }
+            if (nextWarnings >= 2) {
+              void terminateInterview("Interview terminated – Multiple persons detected.");
+            }
+            return nextWarnings;
+          });
+        }
+      } catch {
+        setFaceDetected(false);
       }
     }, 1500);
 
@@ -221,10 +215,10 @@ const InterviewSession = () => {
 
   // For coding interviews: require camera only
   // For speech interviews: require camera + mic
-  // Face detection is for monitoring only (non-blocking)
+  // Face validation is mandatory in all rounds
   const mandatoryPaused = isCoding 
-    ? !cameraReady
-    : !cameraReady || !micReady;
+    ? !cameraReady || !faceDetectionReady || !faceDetected
+    : !cameraReady || !micReady || !faceDetectionReady || !faceDetected;
 
   const terminateInterview = async (reason: string) => {
     if (!token || !interviewId) return;
@@ -385,7 +379,7 @@ const InterviewSession = () => {
   const submitCurrentAnswer = async () => {
     if (!token || !interviewId || terminated) return;
     if (mandatoryPaused) {
-      toast.error("Camera and microphone are required to submit your answer.");
+      toast.error(isCoding ? "Camera and clear face visibility are required to submit your answer." : "Camera, microphone, and clear face visibility are required to submit your answer.");
       return;
     }
 
@@ -552,7 +546,13 @@ const InterviewSession = () => {
           <div className="p-3 rounded-xl border border-warning/30 bg-warning/10 text-warning text-sm flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
-              {!cameraReady ? "📷 Enable camera access" : !micReady && !isCoding ? "🎤 Enable microphone access" : "Face detection: position your face in frame or click 'I'm Ready' to proceed"}
+              {!cameraReady
+                ? "📷 Enable camera access"
+                : !micReady && !isCoding
+                  ? "🎤 Enable microphone access"
+                  : !faceDetectionReady
+                    ? "🔍 Initializing mandatory face validation..."
+                    : "🙂 Keep your face clearly visible to continue"}
             </span>
           </div>
         )}
@@ -574,14 +574,6 @@ const InterviewSession = () => {
                   <button onClick={startRecording} disabled={isRecording || mandatoryPaused} className="px-4 py-2 rounded-lg bg-success/20 text-success text-sm font-medium disabled:opacity-40 flex items-center gap-2">
                     <PlayCircle className="h-4 w-4" /> Start Recording
                   </button>
-                  {!faceDetected && !skipFaceDetection && faceDetectionReady && (
-                    <button 
-                      onClick={() => setSkipFaceDetection(true)}
-                      className="px-4 py-2 rounded-lg bg-warning/20 text-warning text-sm font-medium flex items-center gap-2 hover:bg-warning/30 transition-colors"
-                    >
-                      ✓ I'm Ready (Skip Face Check)
-                    </button>
-                  )}
                   <button onClick={stopRecording} disabled={!isRecording} className="px-4 py-2 rounded-lg bg-destructive/20 text-destructive text-sm font-medium disabled:opacity-40 flex items-center gap-2">
                     <PauseCircle className="h-4 w-4" /> Stop Recording
                   </button>
@@ -629,11 +621,11 @@ const InterviewSession = () => {
               </div>
             )}
 
-            <div className="flex justify-end">
+            <div className="flex justify-center md:justify-end">
               <button
                 onClick={() => void submitCurrentAnswer()}
                 disabled={(isCoding ? !codeAnswer.trim() : !transcript.trim()) || submitting || mandatoryPaused}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-primary text-primary-foreground font-semibold hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-primary text-primary-foreground font-semibold hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed min-w-[220px] justify-center"
               >
                 {currentQ < questions.length - 1 ? (
                   <>Confirm & Next <ChevronRight className="h-4 w-4" /></>

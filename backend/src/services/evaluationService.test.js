@@ -22,8 +22,12 @@ describe("evaluation service", () => {
 
   it("returns structured report breakdown", () => {
     const report = evaluateInterview({
-      type: "coding",
-      topic: "arrays",
+      type: "skill",
+      topic: "javascript",
+      questions: [
+        "How do hash maps help reduce lookup complexity?",
+        "How do you handle edge cases in array problems?",
+      ],
       answers: [
         {
           transcript: "First I clarify constraints, then I iterate and track seen values using a hash map for O(n).",

@@ -16,6 +16,7 @@ const fadeUp = {
 const scoreRemark = (label: string, value: number) => {
   if (label === "Coverage" && value < 75) return "Missing key concepts; add domain terms";
   if (label === "Confidence" && value < 75) return "Minor pauses detected; improve stability";
+  if (label === "Eye Contact" && value < 75) return "Face visibility is low; maintain direct visual focus";
   if (label === "Communication" && value < 75) return "Reduce filler words and tighten delivery";
   if (value >= 85) return "Strong alignment and performance";
   if (value >= 70) return "Good baseline with room to improve";
@@ -73,6 +74,9 @@ const InterviewResults = () => {
       { label: "Grammar", value: report.breakdown.grammar, icon: CheckCircle },
       { label: "Communication", value: report.breakdown.communication, icon: TrendingUp },
       { label: "Confidence", value: report.breakdown.confidence, icon: Award },
+      ...(typeof report.breakdown.eyeContact === "number"
+        ? [{ label: "Eye Contact", value: report.breakdown.eyeContact, icon: Target }]
+        : []),
     ];
   }, [report]);
 
@@ -262,11 +266,11 @@ const InterviewResults = () => {
                           
                           {item.feedback.length > 0 && (
                             <div className="pt-2">
-                              <p className="text-xs font-semibold text-success mb-2">✓ What Went Well</p>
+                              <p className="text-xs font-semibold text-foreground mb-2">Evaluation Feedback</p>
                               <ul className="space-y-1">
                                 {item.feedback.map((fb, i) => (
                                   <li key={i} className="text-xs text-foreground flex items-start gap-2">
-                                    <span className="h-1 w-1 rounded-full bg-success mt-1.5 shrink-0" />
+                                    <span className="h-1 w-1 rounded-full bg-primary mt-1.5 shrink-0" />
                                     {fb}
                                   </li>
                                 ))}
