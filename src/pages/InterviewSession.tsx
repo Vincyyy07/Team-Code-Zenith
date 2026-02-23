@@ -124,17 +124,47 @@ const InterviewSession = () => {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: !isCoding });
         mediaStreamRef.current = stream;
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        if (!videoRef.current) return;
 
+        videoRef.current.srcObject = stream;
+
+        // Wait for video to have frames available
+        await new Promise<void>((resolve) => {
+          let isDone = false;
+
+          const cleanup = () => {
+            isDone = true;
+            videoRef.current?.removeEventListener("loadeddata", onLoadedData);
+            clearTimeout(fallbackTimer);
+          };
+
+          const onLoadedData = () => {
+            if (isDone) return;
+            cleanup();
+            resolve();
+          };
+
+          videoRef.current?.addEventListener("loadeddata", onLoadedData);
+
+          // Fallback timeout after 2.5 seconds
+          const fallbackTimer = setTimeout(() => {
+            if (!isDone) {
+              cleanup();
+              resolve();
+            }
+          }, 2500);
+        });
+
+        // Set camera and mic ready
         const videoTrack = stream.getVideoTracks()[0];
         const audioTrack = stream.getAudioTracks()[0];
         setCameraReady(Boolean(videoTrack?.enabled));
         setMicReady(isCoding ? true : Boolean(audioTrack?.enabled));
 
+        // Initialize face detection
         await faceDetectionService.initialize();
 
+        // Setup audio analysis for speech metrics
         if (!isCoding && audioTrack) {
           const audioContext = new AudioContext();
           const source = audioContext.createMediaStreamSource(stream);
@@ -144,7 +174,7 @@ const InterviewSession = () => {
           audioContextRef.current = audioContext;
           analyserRef.current = analyser;
         }
-      } catch {
+      } catch (error) {
         toast.error(isCoding ? "Camera access is mandatory." : "Camera and microphone access is mandatory.");
       }
     };
@@ -202,7 +232,7 @@ const InterviewSession = () => {
     return Boolean(withSpeech.SpeechRecognition || withSpeech.webkitSpeechRecognition);
   }, []);
 
-  const mandatoryPaused = isCoding ? !cameraReady || !faceDetected : !cameraReady || !micReady || !faceDetected;
+  const mandatoryPaused = isCoding ? !cameraReady : !cameraReady || !micReady;
 
   const terminateInterview = async (reason: string) => {
     if (!token || !interviewId) return;
@@ -298,7 +328,7 @@ const InterviewSession = () => {
     }
 
     if (mandatoryPaused) {
-      toast.error("Enable camera/microphone and ensure face detection before recording.");
+      toast.error(isCoding ? "Enable camera before recording." : "Enable camera and microphone before recording.");
       return;
     }
 
@@ -363,7 +393,7 @@ const InterviewSession = () => {
   const submitCurrentAnswer = async () => {
     if (!token || !interviewId || terminated) return;
     if (mandatoryPaused) {
-      toast.error("Interview paused. Mandatory proctoring requirements are not met.");
+      toast.error(isCoding ? "Camera is required to submit." : "Camera and microphone are required to submit.");
       return;
     }
 
@@ -529,7 +559,7 @@ const InterviewSession = () => {
         {mandatoryPaused && (
           <div className="p-3 rounded-xl border border-warning/30 bg-warning/10 text-warning text-sm flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Interview paused: keep mandatory proctoring signals active.
+            {isCoding ? "Enable camera to continue." : "Enable camera and microphone to continue."}
           </div>
         )}
 
