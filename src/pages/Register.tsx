@@ -69,7 +69,7 @@ const Register = () => {
         <div className="absolute inset-0 bg-gradient-primary opacity-5" />
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="relative max-w-md">
           <Brain className="h-16 w-16 text-primary mb-8" />
-          <h1 className="text-4xl font-bold mb-4">Join <span className="text-gradient">HireSense AI</span></h1>
+          <h1 className="text-4xl font-bold mb-4">Join <span className="text-gradient">MocMate AI</span></h1>
           <p className="text-muted-foreground text-lg">Start your journey to interview mastery. Practice with AI, get real-time feedback, and improve every session.</p>
         </motion.div>
       </div>

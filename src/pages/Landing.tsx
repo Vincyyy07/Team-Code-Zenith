@@ -34,7 +34,7 @@ const Landing = () => {
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <Brain className="h-7 w-7 text-primary" />
-            <span className="text-lg font-bold text-foreground">HireSense AI</span>
+            <span className="text-lg font-bold text-foreground">MocMate AI</span>
           </Link>
           <div className="flex items-center gap-3">
             <Link to="/login" className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -85,7 +85,7 @@ const Landing = () => {
         <div className="container mx-auto max-w-6xl">
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} className="text-center mb-16">
             <motion.h2 variants={fadeUp} custom={0} className="text-3xl md:text-4xl font-bold">
-              Why <span className="text-gradient">HireSense AI</span>?
+              Why <span className="text-gradient">MocMate AI</span>?
             </motion.h2>
           </motion.div>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -167,9 +167,9 @@ const Landing = () => {
         <div className="container mx-auto flex items-center justify-between text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <Brain className="h-4 w-4 text-primary" />
-            <span>HireSense AI</span>
+            <span>MocMate AI</span>
           </div>
-          <span>© 2026 HireSense AI. All rights reserved.</span>
+          <span>© 2026 MocMate AI. All rights reserved.</span>
         </div>
       </footer>
     </div>

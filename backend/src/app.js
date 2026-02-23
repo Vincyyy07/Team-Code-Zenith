@@ -4,9 +4,13 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import path from "path";
+import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { generateQuestions, evaluateInterview } from "./services/evaluationService.js";
 import { parseResumePdf, extractProfileFromResume } from "./services/profileService.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -426,6 +430,19 @@ export const createApp = (repo) => {
   app.use((err, _req, res, _next) => {
     console.error(err);
     return res.status(500).json({ message: "Unexpected server error" });
+  });
+
+  // Serve static files from the frontend build directory
+  const distPath = path.join(__dirname, "../../dist");
+  app.use(express.static(distPath));
+
+  // SPA fallback: serve index.html for all non-API routes
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"), (err) => {
+      if (err) {
+        res.status(404).json({ message: "Not found" });
+      }
+    });
   });
 
   return app;

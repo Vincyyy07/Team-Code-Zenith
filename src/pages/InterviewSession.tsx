@@ -70,6 +70,8 @@ const InterviewSession = () => {
   const [cameraReady, setCameraReady] = useState(false);
   const [micReady, setMicReady] = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
+  const [faceDetectionReady, setFaceDetectionReady] = useState(false);
+  const [skipFaceDetection, setSkipFaceDetection] = useState(false);
 
   const [tabSwitches, setTabSwitches] = useState(0);
   const [longSilenceEvents, setLongSilenceEvents] = useState(0);
@@ -161,7 +163,6 @@ const InterviewSession = () => {
         setCameraReady(Boolean(videoTrack?.enabled));
         setMicReady(isCoding ? true : Boolean(audioTrack?.enabled));
 
-        // Initialize face detection
         await faceDetectionService.initialize();
 
         // Setup audio analysis for speech metrics
@@ -232,7 +233,7 @@ const InterviewSession = () => {
     return Boolean(withSpeech.SpeechRecognition || withSpeech.webkitSpeechRecognition);
   }, []);
 
-  const mandatoryPaused = isCoding ? !cameraReady : !cameraReady || !micReady;
+  const mandatoryPaused = isCoding ? !cameraReady || !faceDetected : !cameraReady || !micReady || !faceDetected;
 
   const terminateInterview = async (reason: string) => {
     if (!token || !interviewId) return;
@@ -545,7 +546,7 @@ const InterviewSession = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold">{isCoding ? "Coding Interview in Progress" : "Interview in Progress"}</h2>
-            <p className="text-sm text-muted-foreground capitalize">{type} • {topic} • 10 Questions Mandatory • Powered by HireSense AI</p>
+            <p className="text-sm text-muted-foreground capitalize">{type} • {topic} • 10 Questions Mandatory • Powered by MocMate AI</p>
           </div>
           <div className="flex items-center gap-4">
             <div className={`text-sm font-semibold flex items-center gap-2 px-3 py-1.5 rounded-lg ${questionTime > 30 ? "bg-success/10 text-success" : questionTime > 10 ? "bg-warning/10 text-warning" : "bg-destructive/10 text-destructive"}`}>
@@ -559,7 +560,7 @@ const InterviewSession = () => {
         {mandatoryPaused && (
           <div className="p-3 rounded-xl border border-warning/30 bg-warning/10 text-warning text-sm flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            {isCoding ? "Enable camera to continue." : "Enable camera and microphone to continue."}
+            Interview paused: keep mandatory proctoring signals active.
           </div>
         )}
 
@@ -580,6 +581,14 @@ const InterviewSession = () => {
                   <button onClick={startRecording} disabled={isRecording || mandatoryPaused} className="px-4 py-2 rounded-lg bg-success/20 text-success text-sm font-medium disabled:opacity-40 flex items-center gap-2">
                     <PlayCircle className="h-4 w-4" /> Start Recording
                   </button>
+                  {!faceDetected && !skipFaceDetection && faceDetectionReady && (
+                    <button 
+                      onClick={() => setSkipFaceDetection(true)}
+                      className="px-4 py-2 rounded-lg bg-warning/20 text-warning text-sm font-medium flex items-center gap-2 hover:bg-warning/30 transition-colors"
+                    >
+                      ✓ I'm Ready (Skip Face Check)
+                    </button>
+                  )}
                   <button onClick={stopRecording} disabled={!isRecording} className="px-4 py-2 rounded-lg bg-destructive/20 text-destructive text-sm font-medium disabled:opacity-40 flex items-center gap-2">
                     <PauseCircle className="h-4 w-4" /> Stop Recording
                   </button>

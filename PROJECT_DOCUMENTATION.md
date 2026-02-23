@@ -1,10 +1,10 @@
-# HireSense AI – Full Project Documentation
+# MocMate AI – Full Project Documentation
 
 ## 1. Introduction
 
-HireSense AI is a production-grade interview intelligence system designed for placement readiness. It provides structured mock interviews with strict evaluation logic, real-time proctoring, and analytics derived from persisted interview reports.
+MocMate AI is a production-grade interview intelligence system designed for placement readiness. It provides structured mock interviews with strict evaluation logic, real-time proctoring, and analytics derived from persisted interview reports.
 
-Unlike generic mock platforms, HireSense AI enforces correctness-first scoring and strict interview integrity constraints.
+Unlike generic mock platforms, MocMate AI enforces correctness-first scoring and strict interview integrity constraints.
 
 ---
 
@@ -16,7 +16,7 @@ Students preparing for placements often face three major issues:
 2. No strict and reliable evaluation of answer correctness.
 3. No measurable analytics to improve performance over time.
 
-HireSense AI addresses these issues with mandatory proctoring, semantic correctness gating, coding validation, and real dashboard metrics.
+MocMate AI addresses these issues with mandatory proctoring, semantic correctness gating, coding validation, and real dashboard metrics.
 
 ---
 
@@ -319,4 +319,4 @@ Video Stream → BlazeFace detectFaces() loop
 
 ## 17. Conclusion
 
-HireSense AI is a strict, production-oriented interview intelligence platform focused on correctness, integrity, and measurable improvement. The system enforces realistic interview constraints, prevents inflated scoring, persists genuine analytics, and provides structured, actionable feedback aligned with placement preparation needs.
+MocMate AI is a strict, production-oriented interview intelligence platform focused on correctness, integrity, and measurable improvement. The system enforces realistic interview constraints, prevents inflated scoring, persists genuine analytics, and provides structured, actionable feedback aligned with placement preparation needs.
