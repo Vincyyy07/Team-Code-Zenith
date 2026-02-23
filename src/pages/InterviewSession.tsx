@@ -150,8 +150,6 @@ const InterviewSession = () => {
           setFaceDetectionReady(true); // Allow button to show even if face detection failed
         }, 8000);
 
-        return () => window.clearTimeout(faceDetectionTimeout);
-
         if (!isCoding && audioTrack) {
           const audioContext = new AudioContext();
           const source = audioContext.createMediaStreamSource(stream);
@@ -161,6 +159,8 @@ const InterviewSession = () => {
           audioContextRef.current = audioContext;
           analyserRef.current = analyser;
         }
+
+        return () => window.clearTimeout(faceDetectionTimeout);
       } catch {
         toast.error(isCoding ? "Camera access is mandatory." : "Camera and microphone access is mandatory.");
       }
