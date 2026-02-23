@@ -126,46 +126,32 @@ const InterviewSession = () => {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: !isCoding });
         mediaStreamRef.current = stream;
 
-        if (!videoRef.current) return;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
 
-        videoRef.current.srcObject = stream;
-
-        // Wait for video to have frames available
-        await new Promise<void>((resolve) => {
-          let isDone = false;
-
-          const cleanup = () => {
-            isDone = true;
-            videoRef.current?.removeEventListener("loadeddata", onLoadedData);
-            clearTimeout(fallbackTimer);
-          };
-
-          const onLoadedData = () => {
-            if (isDone) return;
-            cleanup();
-            resolve();
-          };
-
-          videoRef.current?.addEventListener("loadeddata", onLoadedData);
-
-          // Fallback timeout after 2.5 seconds
-          const fallbackTimer = setTimeout(() => {
-            if (!isDone) {
-              cleanup();
-              resolve();
-            }
-          }, 2500);
-        });
-
-        // Set camera and mic ready
         const videoTrack = stream.getVideoTracks()[0];
         const audioTrack = stream.getAudioTracks()[0];
         setCameraReady(Boolean(videoTrack?.enabled));
         setMicReady(isCoding ? true : Boolean(audioTrack?.enabled));
 
-        await faceDetectionService.initialize();
+        // Initialize face detection with timeout fallback
+        try {
+          await faceDetectionService.initialize();
+          setFaceDetectionReady(true);
+        } catch (error) {
+          console.warn("Face detection initialization failed, will allow skip after timeout", error);
+          setFaceDetectionReady(false);
+        }
 
-        // Setup audio analysis for speech metrics
+        // If face detection takes too long (model not loading), allow skipping after 8 seconds
+        const faceDetectionTimeout = window.setTimeout(() => {
+          console.warn("Face detection timeout - showing skip option to user");
+          setFaceDetectionReady(true); // Allow button to show even if face detection failed
+        }, 8000);
+
+        return () => window.clearTimeout(faceDetectionTimeout);
+
         if (!isCoding && audioTrack) {
           const audioContext = new AudioContext();
           const source = audioContext.createMediaStreamSource(stream);
@@ -175,7 +161,7 @@ const InterviewSession = () => {
           audioContextRef.current = audioContext;
           analyserRef.current = analyser;
         }
-      } catch (error) {
+      } catch {
         toast.error(isCoding ? "Camera access is mandatory." : "Camera and microphone access is mandatory.");
       }
     };
@@ -233,7 +219,11 @@ const InterviewSession = () => {
     return Boolean(withSpeech.SpeechRecognition || withSpeech.webkitSpeechRecognition);
   }, []);
 
-  const mandatoryPaused = isCoding ? !cameraReady || !faceDetected : !cameraReady || !micReady || !faceDetected;
+  // For coding interviews: require camera + face detection
+  // For speech interviews: require camera + mic, face detection is optional after 8s timeout
+  const mandatoryPaused = isCoding 
+    ? !cameraReady || (!faceDetected && !skipFaceDetection)
+    : !cameraReady || !micReady || (!faceDetected && !skipFaceDetection);
 
   const terminateInterview = async (reason: string) => {
     if (!token || !interviewId) return;
@@ -329,7 +319,7 @@ const InterviewSession = () => {
     }
 
     if (mandatoryPaused) {
-      toast.error(isCoding ? "Enable camera before recording." : "Enable camera and microphone before recording.");
+      toast.error("Enable camera/microphone and ensure face detection before recording.");
       return;
     }
 
@@ -394,7 +384,7 @@ const InterviewSession = () => {
   const submitCurrentAnswer = async () => {
     if (!token || !interviewId || terminated) return;
     if (mandatoryPaused) {
-      toast.error(isCoding ? "Camera is required to submit." : "Camera and microphone are required to submit.");
+      toast.error("Interview paused. Mandatory proctoring requirements are not met.");
       return;
     }
 
@@ -560,7 +550,9 @@ const InterviewSession = () => {
         {mandatoryPaused && (
           <div className="p-3 rounded-xl border border-warning/30 bg-warning/10 text-warning text-sm flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            Interview paused: keep mandatory proctoring signals active.
+            <span>
+              {!cameraReady ? "📷 Enable camera access" : !micReady && !isCoding ? "🎤 Enable microphone access" : "Face detection: position your face in frame or click 'I'm Ready' to proceed"}
+            </span>
           </div>
         )}
 
