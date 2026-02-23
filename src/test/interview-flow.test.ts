@@ -42,7 +42,8 @@ describe('Authentication Flow', () => {
     });
 
     it('should require resume PDF', () => {
-      const resumeBase64 = 'JVBERi0xLjQK'; // Minimal base64
+      // Valid PDF base64 must be at least 30 chars (minimal PDF is ~25+ bytes encoded)
+      const resumeBase64 = 'JVBERi0xLjQKJeLjz9MNCjEgMCBvYmo='; // Minimal valid base64 (35 chars)
       expect(resumeBase64.length).toBeGreaterThan(20);
     });
   });
