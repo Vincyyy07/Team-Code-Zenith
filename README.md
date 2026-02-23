@@ -1,8 +1,8 @@
-# HireSense AI
+# MocMate AI
 
 Production-ready AI interview intelligence platform for placement preparation.
 
-HireSense AI solves a core placement problem: students often lack realistic interview practice, strict evaluation, and actionable feedback before real interviews. The platform provides proctored interview simulation, correctness-first scoring, and measurable progress analytics.
+MocMate AI solves a core placement problem: students often lack realistic interview practice, strict evaluation, and actionable feedback before real interviews. The platform provides proctored interview simulation, correctness-first scoring, and measurable progress analytics.
 
 ## Core Objectives
 
@@ -60,7 +60,7 @@ HireSense AI solves a core placement problem: students often lack realistic inte
 
 ### UI/UX & Theming
 - Multi-page app flow with protected routes and role-consistent navigation.
-- Professional SaaS-grade branding: HireSense AI.
+- Professional SaaS-grade branding: MocMate AI.
 - Light/Dark mode toggle with persisted preference.
 - Fully responsive layouts and smooth transitions.
 

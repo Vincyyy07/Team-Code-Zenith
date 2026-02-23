@@ -106,7 +106,7 @@ const InterviewResults = () => {
             <Award className="h-10 w-10 text-primary-foreground" />
           </motion.div>
           <h1 className="text-3xl font-bold">Interview Complete!</h1>
-          <p className="text-muted-foreground mt-1">Here&apos;s your detailed feedback report from HireSense AI</p>
+          <p className="text-muted-foreground mt-1">Here&apos;s your detailed feedback report from MocMate AI</p>
         </motion.div>
 
         {/* Overall Score */}

@@ -105,7 +105,7 @@ const Dashboard = () => {
         {/* Header */}
         <motion.div variants={fadeUp} custom={0}>
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Welcome back! HireSense AI interview intelligence summary.</p>
+          <p className="text-muted-foreground mt-1">Welcome back! MocMate AI interview intelligence summary.</p>
         </motion.div>
 
         {/* Stats */}

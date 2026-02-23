@@ -64,16 +64,17 @@ class FaceDetectionService {
     this.loading = true;
 
     try {
-      const [{ default: tf }, blazeface] = await Promise.all([import("@tensorflow/tfjs"), import("@tensorflow-models/blazeface")]);
+      const tf = await import("@tensorflow/tfjs");
+      const blazeface = await import("@tensorflow-models/blazeface");
 
       try {
-        await tf.setBackend("webgl");
+        await tf.default.setBackend("webgl");
       } catch {
-        await tf.setBackend("cpu");
+        await tf.default.setBackend("cpu");
       }
 
-      await tf.ready();
-      this.model = await blazeface.load();
+      await tf.default.ready();
+      this.model = await blazeface.default();
       this.initialized = true;
     } finally {
       this.loading = false;

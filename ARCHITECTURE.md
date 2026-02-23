@@ -1,4 +1,4 @@
-# HireSense AI – Production Architecture
+# MocMate AI – Production Architecture
 
 ## 1. High-Level Architecture
 

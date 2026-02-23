@@ -27,7 +27,7 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
   return (
     <div className="flex min-h-screen bg-background">
       <header className="md:hidden fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border bg-card flex items-center justify-between">
-        <span className="font-semibold text-foreground">HireSense AI</span>
+        <span className="font-semibold text-foreground">MocMate AI</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => void toggleTheme()}
@@ -67,7 +67,7 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
           <AnimatePresence>
             {!collapsed && (
               <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="ml-2 text-lg font-bold text-foreground whitespace-nowrap">
-                HireSense AI
+                MocMate AI
               </motion.span>
             )}
           </AnimatePresence>
