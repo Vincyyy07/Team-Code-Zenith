@@ -219,11 +219,12 @@ const InterviewSession = () => {
     return Boolean(withSpeech.SpeechRecognition || withSpeech.webkitSpeechRecognition);
   }, []);
 
-  // For coding interviews: require camera + face detection
-  // For speech interviews: require camera + mic, face detection is optional after 8s timeout
+  // For coding interviews: require camera only
+  // For speech interviews: require camera + mic
+  // Face detection is for monitoring only (non-blocking)
   const mandatoryPaused = isCoding 
-    ? !cameraReady || (!faceDetected && !skipFaceDetection)
-    : !cameraReady || !micReady || (!faceDetected && !skipFaceDetection);
+    ? !cameraReady
+    : !cameraReady || !micReady;
 
   const terminateInterview = async (reason: string) => {
     if (!token || !interviewId) return;
@@ -319,7 +320,7 @@ const InterviewSession = () => {
     }
 
     if (mandatoryPaused) {
-      toast.error("Enable camera/microphone and ensure face detection before recording.");
+      toast.error("Enable camera and microphone to start recording.");
       return;
     }
 
@@ -384,7 +385,7 @@ const InterviewSession = () => {
   const submitCurrentAnswer = async () => {
     if (!token || !interviewId || terminated) return;
     if (mandatoryPaused) {
-      toast.error("Interview paused. Mandatory proctoring requirements are not met.");
+      toast.error("Camera and microphone are required to submit your answer.");
       return;
     }
 
